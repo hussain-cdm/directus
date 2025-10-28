@@ -1,0 +1,49 @@
+name: Deploy Directus Schema to Production
+
+on:
+  push:
+    branches:
+      - main   # or whichever branch you use for deployment
+
+jobs:
+  deploy-schema:
+    runs-on: ubuntu-latest
+
+    env:
+      DIRECTUS_URL: ${{ secrets.DIRECTUS_PROD_URL }}
+      DIRECTUS_TOKEN: ${{ secrets.DIRECTUS_PROD_ADMIN_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Directus CLI
+        run: |
+          npm install -g directus
+
+      - name: Fetch Production Schema
+        run: |
+          echo "Fetching current production schema..."
+          curl -s -H "Authorization: Bearer $DIRECTUS_TOKEN" \
+            "$DIRECTUS_URL/schema/snapshot" \
+            -o prod_schema.json
+
+      - name: Compare Schema Differences
+        run: |
+          echo "Comparing schema.json (local) with production schema..."
+          directus schema diff \
+            --from ./schema.json \
+            --to ./prod_schema.json \
+            -o diff.json
+
+      - name: Show Diff Summary
+        run: |
+          echo "Schema diff generated:"
+          cat diff.json
+
+      - name: Apply Schema to Production
+        if: success()
+        run: |
+          echo "Applying schema changes to production..."
+          directus schema apply --to $DIRECTUS_URL --yes diff.json \
+            --token $DIRECTUS_TOKEN

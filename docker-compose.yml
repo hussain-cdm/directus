@@ -1,0 +1,24 @@
+services:
+    directus:
+        image: 98346/directus-copy-local:v4
+        ports:
+            - 8055:8055
+        volumes:
+            - ./database:/directus/database
+            - ./uploads:/directus/uploads
+            - ./extensions:/directus/extensions
+        environment:
+            SECRET: "replace-with-random-value"
+            ADMIN_EMAIL: ${ADMIN_EMAIL}
+            ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+            DB_CLIENT: "sqlite3"
+            DB_FILENAME: "/directus/database/data.db"
+            WEBSOCKETS_ENABLED: "true"
+
+            STORAGE_LOCATIONS: s3
+            STORAGE_S3_DRIVER: s3
+            STORAGE_S3_KEY: "${STORAGE_S3_KEY}"
+            STORAGE_S3_SECRET: "${STORAGE_S3_SECRET}"
+            STORAGE_S3_BUCKET: "${STORAGE_S3_BUCKET}"
+            STORAGE_S3_REGION: "${STORAGE_S3_REGION}"
+            STORAGE_S3_ENDPOINT: "${STORAGE_S3_ENDPOINT}"
