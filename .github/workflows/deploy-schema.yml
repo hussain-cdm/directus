@@ -3,7 +3,7 @@ name: Deploy Directus Schema to Production
 on:
   push:
     branches:
-      - main   # or whichever branch you use for deployment
+      - main
 
 jobs:
   deploy-schema:
@@ -17,24 +17,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Directus CLI
+      - name: Get Schema Differences
         run: |
-          npm install -g directus
-
-      - name: Fetch Production Schema
-        run: |
-          echo "Fetching current production schema..."
-          curl -s -H "Authorization: Bearer $DIRECTUS_TOKEN" \
-            "$DIRECTUS_URL/schema/snapshot" \
-            -o prod_schema.json
-
-      - name: Compare Schema Differences
-        run: |
-          echo "Comparing schema.json (local) with production schema..."
-          directus schema diff \
-            --from ./schema.json \
-            --to ./prod_schema.json \
-            -o diff.json
+          echo "Comparing local schema.json with production schema..."
+          curl -s -X POST \
+            -H "Authorization: Bearer $DIRECTUS_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @schema.json \
+            "$DIRECTUS_URL/schema/diff" \
+            -o diff_response.json
+          
+          echo "Extracting diff data from response..."
+          jq '.data' diff_response.json > diff.json
 
       - name: Show Diff Summary
         run: |
@@ -45,5 +39,8 @@ jobs:
         if: success()
         run: |
           echo "Applying schema changes to production..."
-          directus schema apply --to $DIRECTUS_URL --yes diff.json \
-            --token $DIRECTUS_TOKEN
+          curl -s -X POST \
+            -H "Authorization: Bearer $DIRECTUS_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @diff.json \
+            "$DIRECTUS_URL/schema/apply"
