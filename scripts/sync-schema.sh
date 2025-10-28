@@ -28,7 +28,7 @@ done
 # ----------------------------
 # 1️⃣ Merge prod + local-only collections → compute diff → apply
 # ----------------------------
-echo "📥 Fetching prod & local snapshots, merging local-only collections, applying diff..."
+:
 
 TMP_PROD=$(mktemp)
 TMP_LOCAL=$(mktemp)
@@ -52,40 +52,39 @@ jq -n \
   def onlyLocal(arr): (arr // []) | map(select((.collection // null) as $c | $c and (($localOnly | index($c)) != null)));
   
   {
+    version:      ($P[0].version // $L[0].version // 1),
+    directus:     ($P[0].directus // $L[0].directus // "unknown"),
+    vendor:       ($P[0].vendor // $L[0].vendor // "unknown"),
     collections:  (($P[0].collections  // []) + onlyLocal($L[0].collections)),
     fields:       (($P[0].fields       // []) + onlyLocal($L[0].fields)),
-    relations:    (($P[0].relations    // []) + onlyLocal($L[0].relations)),
-    permissions:  ($P[0].permissions   // []),
-    presets:      ($P[0].presets       // []),
-    dashboards:   ($P[0].dashboards    // []),
-    panels:       ($P[0].panels        // []),
-    flows:        ($P[0].flows         // []),
-    operations:   ($P[0].operations    // []),
-    webhooks:     ($P[0].webhooks      // []),
-    translations: ($P[0].translations  // [])
+    relations:    (($P[0].relations    // []) + onlyLocal($L[0].relations))
   }
   ' > "$TMP_MERGED"
 
-# Compute diff and apply
+# Compute diff and apply, printing only request bodies
+TMP_DIFF=$(mktemp)
+TMP_APPLY=$(mktemp)
+cleanup() { rm -f "$TMP_PROD" "$TMP_LOCAL" "$TMP_MERGED" "$TMP_DIFF" "$TMP_APPLY"; }
+
 cat "$TMP_MERGED" \
 | curl -s -X POST \
     -H "Authorization: Bearer $LOCAL_TOKEN" \
     -H "Content-Type: application/json" \
     --data @- \
-    "$LOCAL_URL/schema/diff" \
-| jq -c '.data' \
+    "$LOCAL_URL/schema/diff" > "$TMP_DIFF"
+
+jq -c '.data' < "$TMP_DIFF" \
 | curl -s -X POST \
     -H "Authorization: Bearer $LOCAL_TOKEN" \
     -H "Content-Type: application/json" \
     --data @- \
-    "$LOCAL_URL/schema/apply" > /dev/null
+    "$LOCAL_URL/schema/apply" > "$TMP_APPLY"
 
-echo "✅ Local Directus schema updated (prod + local-only preserved)."
+:
 
 # ----------------------------
 # 2️⃣ Export updated local schema → write schema.json
 # ----------------------------
-echo "📦 Exporting updated local schema to schema.json..."
 curl -s -X GET \
   -H "Authorization: Bearer $LOCAL_TOKEN" \
   "$LOCAL_URL/schema/snapshot" \
@@ -96,5 +95,4 @@ if [ ! -s schema.json ]; then
   exit 1
 fi
 
-echo "✅ schema.json updated with current local snapshot."
-echo "🎉 Done! You can now commit and push schema.json."
+:
