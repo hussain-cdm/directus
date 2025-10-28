@@ -35,8 +35,19 @@ jobs:
           echo "Schema diff generated:"
           cat diff.json
 
+      - name: Check if diff is empty
+        id: check_diff
+        run: |
+          if [ ! -s diff.json ] || [ "$(jq 'to_entries | length' diff.json)" = "0" ]; then
+            echo "Diff is empty or null, skipping schema apply"
+            echo "should_apply=false" >> $GITHUB_OUTPUT
+          else
+            echo "Diff contains changes, will apply schema"
+            echo "should_apply=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Apply Schema to Production
-        if: success()
+        if: steps.check_diff.outputs.should_apply == 'true'
         run: |
           echo "Applying schema changes to production..."
           curl -s -X POST \
