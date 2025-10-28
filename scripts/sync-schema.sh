@@ -1,10 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# ----------------------------
-# Configuration
-# ----------------------------
-# Load .env if present
 if [ -f ".env" ]; then
   set -a
   . ./.env
@@ -16,19 +12,6 @@ PROD_URL=${DIRECTUS_PROD_URL:-}
 PROD_TOKEN=${DIRECTUS_PROD_ADMIN_TOKEN:-}
 LOCAL_URL=${DIRECTUS_LOCAL_URL:-"http://localhost:8055"}
 LOCAL_TOKEN=${DIRECTUS_LOCAL_TOKEN:-}
-
-# Validate required vars
-for v in PROD_URL PROD_TOKEN LOCAL_TOKEN; do
-  if [ -z "${!v}" ]; then
-    echo "❌ Missing $v. Please set it in .env or environment."
-    exit 1
-  fi
-done
-
-# ----------------------------
-# 1️⃣ Merge prod + local-only collections → compute diff → apply
-# ----------------------------
-:
 
 TMP_PROD=$(mktemp)
 TMP_LOCAL=$(mktemp)
