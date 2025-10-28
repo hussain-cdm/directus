@@ -4,10 +4,26 @@ set -euo pipefail
 # ----------------------------
 # Configuration
 # ----------------------------
-PROD_URL=${DIRECTUS_PROD_URL:-"https://directus-w8it.onrender.com"}
-PROD_TOKEN=${DIRECTUS_PROD_ADMIN_TOKEN:-"peQKiHGzRp922iFIS0UNU678bNZY0Gay"}
+# Load .env if present
+if [ -f ".env" ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+# Read env vars (from .env or environment)
+PROD_URL=${DIRECTUS_PROD_URL:-}
+PROD_TOKEN=${DIRECTUS_PROD_ADMIN_TOKEN:-}
 LOCAL_URL=${DIRECTUS_LOCAL_URL:-"http://localhost:8055"}
-LOCAL_TOKEN=${DIRECTUS_LOCAL_TOKEN:-"OwZdxXV6z403Wj7hhxbfhaiuMgaZtKoG"}
+LOCAL_TOKEN=${DIRECTUS_LOCAL_TOKEN:-}
+
+# Validate required vars
+for v in PROD_URL PROD_TOKEN LOCAL_TOKEN; do
+  if [ -z "${!v}" ]; then
+    echo "❌ Missing $v. Please set it in .env or environment."
+    exit 1
+  fi
+done
 
 # ----------------------------
 # 1️⃣ Merge prod + local-only collections → compute diff → apply
@@ -20,60 +36,44 @@ TMP_MERGED=$(mktemp)
 cleanup() { rm -f "$TMP_PROD" "$TMP_LOCAL" "$TMP_MERGED"; }
 trap cleanup EXIT
 
-# Fetch production snapshot (.data)
-curl -s -X GET \
-  -H "Authorization: Bearer $PROD_TOKEN" \
-  "$PROD_URL/schema/snapshot" \
-| jq '.data' > "$TMP_PROD"
-
-# Fetch local snapshot (.data)
-curl -s -X GET \
-  -H "Authorization: Bearer $LOCAL_TOKEN" \
-  "$LOCAL_URL/schema/snapshot" \
-| jq '.data' > "$TMP_LOCAL"
+# Fetch production and local snapshots in parallel
+curl -s -X GET -H "Authorization: Bearer $PROD_TOKEN" "$PROD_URL/schema/snapshot" | jq '.data' > "$TMP_PROD" &
+curl -s -X GET -H "Authorization: Bearer $LOCAL_TOKEN" "$LOCAL_URL/schema/snapshot" | jq '.data' > "$TMP_LOCAL" &
+wait
 
 # Merge: start from prod, add local-only collections/fields/relations
 jq -n \
   --slurpfile P "$TMP_PROD" \
   --slurpfile L "$TMP_LOCAL" \
   '
-  $P[0] as $prod | $L[0] as $local |
-  ($local.collections // [] | map(.collection)) as $localNames |
-  ($prod.collections  // [] | map(.collection)) as $prodNames |
-  ($localNames - $prodNames) as $localOnly |
-
-  def onlyLocal(arr):
-    (arr // [])
-    | map(select((.collection // null) as $c | ($c != null) and (($localOnly | index($c)) != null)));
-
+  ($P[0].collections // [] | map(.collection)) as $prodNames |
+  (($L[0].collections // [] | map(.collection)) - $prodNames) as $localOnly |
+  
+  def onlyLocal(arr): (arr // []) | map(select((.collection // null) as $c | $c and (($localOnly | index($c)) != null)));
+  
   {
-    collections:  (($prod.collections  // []) + onlyLocal($local.collections)),
-    fields:       (($prod.fields       // []) + onlyLocal($local.fields)),
-    relations:    (($prod.relations    // []) + onlyLocal($local.relations)),
-    permissions:  ($prod.permissions   // []),
-    presets:      ($prod.presets       // []),
-    dashboards:   ($prod.dashboards    // []),
-    panels:       ($prod.panels        // []),
-    flows:        ($prod.flows         // []),
-    operations:   ($prod.operations    // []),
-    webhooks:     ($prod.webhooks      // []),
-    translations: ($prod.translations  // [])
+    collections:  (($P[0].collections  // []) + onlyLocal($L[0].collections)),
+    fields:       (($P[0].fields       // []) + onlyLocal($L[0].fields)),
+    relations:    (($P[0].relations    // []) + onlyLocal($L[0].relations)),
+    permissions:  ($P[0].permissions   // []),
+    presets:      ($P[0].presets       // []),
+    dashboards:   ($P[0].dashboards    // []),
+    panels:       ($P[0].panels        // []),
+    flows:        ($P[0].flows         // []),
+    operations:   ($P[0].operations    // []),
+    webhooks:     ($P[0].webhooks      // []),
+    translations: ($P[0].translations  // [])
   }
   ' > "$TMP_MERGED"
 
-if [ ${DEBUG:-0} = 1 ]; then
-  echo "Saved merged snapshot preview: $TMP_MERGED"
-fi
-
+# Compute diff and apply
 cat "$TMP_MERGED" \
 | curl -s -X POST \
     -H "Authorization: Bearer $LOCAL_TOKEN" \
     -H "Content-Type: application/json" \
     --data @- \
     "$LOCAL_URL/schema/diff" \
-| tee ${DEBUG:+diff_raw.json} \
 | jq -c '.data' \
-| tee ${DEBUG:+diff_filtered.json} \
 | curl -s -X POST \
     -H "Authorization: Bearer $LOCAL_TOKEN" \
     -H "Content-Type: application/json" \
